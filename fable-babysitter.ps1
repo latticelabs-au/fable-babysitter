@@ -377,7 +377,7 @@ public static class ConIO {
       $j = Get-Content $InFile -Raw | ConvertFrom-Json
       foreach ($p in $j.PSObject.Properties) {
         if ($p.Name -eq '_global') { $state['_global'] = @{ probeAt = [string]$p.Value.probeAt; lastLog = [string]$p.Value.lastLog } }
-        else { $state[$p.Name] = @{ req = [string]$p.Value.req; sends = [int]$p.Value.sends; last = [long]$p.Value.last; streak = [int]$p.Value.streak; file = [string]$p.Value.file } }
+        else { $state[$p.Name] = @{ req = [string]$p.Value.req; sends = [int]$p.Value.sends; last = [long]$p.Value.last; streak = [int]$p.Value.streak; file = [string]$p.Value.file; presume = [bool]$p.Value.presume } }
       }
     } catch {}
   }
@@ -491,9 +491,22 @@ public static class ConIO {
   # ---- per-session flag handling: SCREEN detects (every tab, no mapping), transcript gates scroll ----
   foreach ($s in $sessions) {
     $tpid = $s.pid; $nm = $s.name; $key = $s.key
-    if (-not $state.ContainsKey($key)) { $state[$key] = @{ req = ""; sends = 0; last = 0; streak = 0; file = "" } }
+    if (-not $state.ContainsKey($key)) { $state[$key] = @{ req = ""; sends = 0; last = 0; streak = 0; file = ""; presume = $false } }
     $st = $state[$key]
     $st.file = $s.file   # cache the resolved transcript path so next poll skips re-resolution
+
+    # RESUME AFTER /compact: a /compact just shrinks context and leaves the session idle — it does
+    # NOT continue the work. So after we send /compact we flag `presume`, and once the session is
+    # ready again (compaction finished, input empty) we send one Continue to pick the work back up.
+    if ($st.presume) {
+      if (-not (Test-Ready $s.screen)) { $actions[$key] = 'compacting'; continue }   # still compacting / busy -> wait
+      $st.presume = $false; $st.last = $nowTk; $st.streak = 1
+      $actions[$key] = 'sent'
+      [void]$logs.Add(("RESUME pid={0} name='{1}' (post-/compact)" -f $tpid, $nm))
+      if ($Diag -or $DryRun) { [void]$logs.Add("  would send -> $Reply") }
+      else { $ok = [ConIO]::Inject($tpid, $Reply, $true); [void]$logs.Add(("  {0} -> {1}" -f $(if ($ok) { "sent" } else { "INJECT FAILED" }), $Reply)) }
+      continue
+    }
 
     if (-not $s.sflag) { continue }   # no flag on this pid's screen -> nothing to do (keep the loop's streak/req)
 
@@ -529,7 +542,7 @@ public static class ConIO {
 
     # after a long streak of continues, send /compact instead to shrink the runaway context
     $doCompact = ($CompactAfter -gt 0 -and $st.streak -ge $CompactAfter)
-    if ($doCompact) { $sendText = $CompactCmd; $st.streak = 0 }
+    if ($doCompact) { $sendText = $CompactCmd; $st.streak = 0; $st.presume = $true }  # resume with a Continue once it finishes
     else            { $sendText = $Reply;      $st.streak++ }
     $actions[$key] = if ($doCompact) { 'compact' } else { 'sent' }
 
@@ -605,6 +618,7 @@ function Show-Dashboard {
     sent    = @('> continue', 'Green');      compact = @('> /compact', 'Cyan')
     probe   = @('> probe',     'Green');      hold    = @('. hold (you)', 'DarkYellow')
     scroll  = @('. scroll',    'DarkGray');   limit   = @('! USAGE LIMIT', 'Red')
+    compacting = @('~ compacting', 'Cyan');
     flag    = @('* flagged',   'Yellow');     working = @('  working', 'Gray'); idle = @('  idle', 'DarkGray')
   }
   $lines = New-Object System.Collections.ArrayList; $cols = New-Object System.Collections.ArrayList
@@ -692,7 +706,7 @@ while ($true) {
       if ($r.state) {
         foreach ($p in $r.state.PSObject.Properties) {
           if ($p.Name -eq '_global') { $state['_global'] = @{ probeAt = [string]$p.Value.probeAt; lastLog = [string]$p.Value.lastLog } }
-          else { $state[$p.Name] = @{ req = [string]$p.Value.req; sends = [int]$p.Value.sends; last = [long]$p.Value.last; streak = [int]$p.Value.streak; file = [string]$p.Value.file } }
+          else { $state[$p.Name] = @{ req = [string]$p.Value.req; sends = [int]$p.Value.sends; last = [long]$p.Value.last; streak = [int]$p.Value.streak; file = [string]$p.Value.file; presume = [bool]$p.Value.presume } }
         }
       }
     } catch { if (-not $TUI) { Log "could not parse worker result: $_" } }
