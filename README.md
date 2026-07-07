@@ -36,13 +36,13 @@ The fix is just to send `Continue Generating.` — but doing that by hand across
   FABLE-BABYSITTER    4 sessions | poll 2s | maxsends:inf | compact:30 | 20:31:04
   ------------------------------------------------------------------------------
   PID     SESSION                    STATE           STREAK  MAP
-  10340   cfa-fe-2.0                 > continue      7       y
-  14268   cfa-walkthrough            > /compact      30      y
-  9140    perf-optimisation          . scroll        0       y
+  10340   api-refactor               > continue      7       y
+  14268   e2e-suite                  > /compact      30      y
+  9140    docs-pass                  . scroll        0       y
   13384   an-unnamed-tab               working       0       -
 
   recent:
-    [20:31:02] FLAG cfa-walkthrough streak 30
+    [20:31:02] FLAG e2e-suite streak 30
     [20:31:00] COMPACT sent -> /compact
 
   Ctrl+C to quit
@@ -91,10 +91,10 @@ gsudo powershell -ExecutionPolicy Bypass -File .\fable-babysitter.ps1 -TUI
 .\fable-babysitter.ps1 -DryRun
 
 # only act on sessions whose screen mentions this
-.\fable-babysitter.ps1 -TitleMatch "perf-optimisation"
+.\fable-babysitter.ps1 -TitleMatch "e2e-suite"
 
 # never touch a specific session
-.\fable-babysitter.ps1 -ExcludePid 13384
+.\fable-babysitter.ps1 -ExcludePid 12345
 ```
 
 ### Options
