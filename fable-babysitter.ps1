@@ -87,6 +87,7 @@ param(
   [int]      $ProbeSec     = 180,           # while usage-limited, send one Continue this often to test if the cap lifted
   [int]      $StreakGapSec = 300,           # a quiet gap longer than this (no continue) resets a session's streak
   [switch]   $TUI,                          # live control-surface dashboard instead of a scrolling log
+  [switch]   $Install,                      # first-boot: add the SessionStart auto-start hook, then launch
   [switch]   $Diag,                         # print what every session shows each poll; sends nothing
   [switch]   $DryRun,                       # detect + log but don't send
 
@@ -552,6 +553,49 @@ public static class ConIO {
 # ===========================================================================
 function Log($m) { Write-Host ("[{0}] {1}" -f (Get-Date -Format "HH:mm:ss"), $m) }
 
+$SettingsPath = Join-Path ([Environment]::GetFolderPath('UserProfile')) '.claude\settings.json'
+$AutoStart    = Join-Path $PSScriptRoot 'fable-babysitter-autostart.ps1'
+
+function Test-HookInstalled {
+  if (-not (Test-Path $SettingsPath)) { return $false }
+  try { $j = Get-Content $SettingsPath -Raw | ConvertFrom-Json } catch { return $false }
+  foreach ($grp in @($j.hooks.SessionStart)) { foreach ($h in @($grp.hooks)) { if ("$($h.command)" -match 'fable-babysitter-autostart') { return $true } } }
+  return $false
+}
+
+function Install-Hook {
+  # merge a SessionStart hook into ~/.claude/settings.json (idempotent, backed up + validated)
+  if (-not (Test-Path $AutoStart)) { Write-Host "! can't find fable-babysitter-autostart.ps1 next to this script"; return $false }
+  $dir = Split-Path $SettingsPath
+  if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+  $j = if (Test-Path $SettingsPath) {
+    try { Get-Content $SettingsPath -Raw | ConvertFrom-Json } catch { Write-Host "! settings.json is not valid JSON - fix it first, not touching it"; return $false }
+  } else { [pscustomobject]@{} }
+  if (-not $j.PSObject.Properties['hooks'] -or $null -eq $j.hooks) { $j | Add-Member hooks ([pscustomobject]@{}) -Force }
+  if (-not $j.hooks.PSObject.Properties['SessionStart'] -or $null -eq $j.hooks.SessionStart) { $j.hooks | Add-Member SessionStart @() -Force }
+  foreach ($grp in @($j.hooks.SessionStart)) { foreach ($h in @($grp.hooks)) { if ("$($h.command)" -match 'fable-babysitter-autostart') { Write-Host "= SessionStart hook already installed"; return $true } } }
+  $cmd = "powershell -NoProfile -ExecutionPolicy Bypass -File `"$AutoStart`""
+  $entry = [pscustomobject]@{ hooks = @([pscustomobject]@{ type = 'command'; command = $cmd; async = $true }) }
+  $j.hooks.SessionStart = @(@($j.hooks.SessionStart) + $entry)
+  $bak = "${SettingsPath}.bak"
+  if (Test-Path $SettingsPath) { Copy-Item $SettingsPath $bak -Force }
+  ($j | ConvertTo-Json -Depth 100) | Set-Content -Path $SettingsPath -Encoding UTF8
+  try { Get-Content $SettingsPath -Raw | ConvertFrom-Json | Out-Null }
+  catch { if (Test-Path $bak) { Copy-Item $bak $SettingsPath -Force }; Write-Host "! write produced invalid JSON - restored backup, no change made"; return $false }
+  Write-Host "+ installed SessionStart hook in settings.json  (backup: settings.json.bak)"
+  return $true
+}
+
+if ($Install) {
+  Write-Host "fable-babysitter - first-boot install"
+  if (Install-Hook) {
+    Write-Host "  a fable-babysitter now auto-starts with every Claude Code session."
+    Write-Host "  launching one now (minimized)..."
+    try { Start-Process powershell -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $AutoStart) -WindowStyle Minimized } catch { Write-Host "  (couldn't launch now; it'll come up on your next Claude session)" }
+  }
+  exit 0
+}
+
 function Show-Dashboard {
   # live control-surface: one row per session + a tail of recent actions, redrawn in place.
   param($Status, $Recent, $Info)
@@ -606,6 +650,7 @@ if (-not $TUI) {
        $(if ($MaxSends -le 0) { "unlimited" } else { "$MaxSends" }), $RetrySec,
        $(if ($CompactAfter -gt 0) { "$CompactAfter -> $CompactCmd" } else { "off" }), [bool]$Diag, [bool]$DryRun)
   if ($ExcludePid.Count) { Log ("excluding pids: {0}" -f ($ExcludePid -join ', ')) }
+  if (-not (Test-HookInstalled)) { Log "tip: run once with -Install to auto-start on every Claude session" }
 }
 if ($TUI) { try { [Console]::CursorVisible = $false; Clear-Host } catch {}; $recent = New-Object System.Collections.ArrayList }
 

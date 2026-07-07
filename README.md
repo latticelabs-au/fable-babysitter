@@ -113,14 +113,23 @@ gsudo powershell -ExecutionPolicy Bypass -File .\fable-babysitter.ps1 -TUI
 | `-StreakGapSec` | `300` | A quiet gap longer than this resets a session's streak |
 | `-ProbeSec` | `180` | While usage-limited, send one continue this often to test if the cap lifted |
 | `-TUI` | | Live control-surface dashboard |
+| `-Install` | | First-boot: add the auto-start hook to `~/.claude/settings.json`, then launch |
 | `-Diag` | | Print each session's state; send nothing |
 | `-DryRun` | | Detect + log but don't send |
 
 ---
 
-## Auto-start on every Claude session (optional)
+## Auto-start on every Claude session
 
-`fable-babysitter-autostart.ps1` is a tiny idempotent launcher. Wire it to a Claude Code **SessionStart** hook so a babysitter is always up whenever Claude is. Because a hook runs as a child of `claude.exe`, it inherits that session's integrity — start the session elevated and the babysitter launches elevated too. A mutex guard means firing on every session start only ever runs one watcher.
+Run once with `-Install` and a babysitter will come up automatically with every Claude Code session — no JSON editing:
+
+```powershell
+gsudo powershell -ExecutionPolicy Bypass -File .\fable-babysitter.ps1 -Install
+```
+
+This merges a **SessionStart** hook into `~/.claude/settings.json` (idempotent, backs the file up first and rolls back if the write isn't valid JSON), pointing at `fable-babysitter-autostart.ps1` next to the script, then launches one now. Because a hook runs as a child of `claude.exe` it inherits that session's integrity — start the session elevated and the babysitter launches elevated too. A mutex guard means firing on every session start only ever runs one watcher.
+
+<details><summary>Prefer to wire it by hand?</summary>
 
 Add to `~/.claude/settings.json`:
 
@@ -141,6 +150,7 @@ Add to `~/.claude/settings.json`:
   }
 }
 ```
+</details>
 
 ---
 
