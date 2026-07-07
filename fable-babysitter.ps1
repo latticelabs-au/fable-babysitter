@@ -221,11 +221,15 @@ function Test-Busy {
 }
 
 function Test-Limit {
-  # Screen-side usage/session-limit banner (fallback for the transcript, e.g. unmapped tabs).
+  # Screen-side detection of the cap actually being HIT (fallback for the transcript on unmapped tabs).
+  # Must NOT trip on the periodic "you're at X% of your usage limit" notice or the session-start
+  # "…weekly usage limit… if you hit your limit… usage credits" info banner — those say "usage limit"
+  # but aren't a block. Match only the real hit line: "hit your session/usage/weekly limit", or the
+  # "/usage-credits to finish" prompt shown when you're actually blocked.
   param([string]$Screen)
   if (-not $Screen) { return $false }
   $tail = (LastN @($Screen -split "`n") 20) -join "`n"
-  return [bool]($tail -match '(?i)(session|usage)\s+limit|hit your .{0,20}limit|usage-credits')
+  return [bool]($tail -match '(?i)hit your (session|usage|weekly) limit|/usage-credits to finish')
 }
 
 function Get-InputLine {
