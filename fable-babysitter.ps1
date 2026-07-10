@@ -572,6 +572,7 @@ function Log($m) { Write-Host ("[{0}] {1}" -f (Get-Date -Format "HH:mm:ss"), $m)
 
 $SettingsPath = Join-Path ([Environment]::GetFolderPath('UserProfile')) '.claude\settings.json'
 $AutoStart    = Join-Path $PSScriptRoot 'fable-babysitter-autostart.ps1'
+$Shutdown     = Join-Path $PSScriptRoot 'fable-babysitter-shutdown.ps1'
 
 function Test-HookInstalled {
   if (-not (Test-Path $SettingsPath)) { return $false }
@@ -580,33 +581,43 @@ function Test-HookInstalled {
   return $false
 }
 
-function Install-Hook {
-  # merge a SessionStart hook into ~/.claude/settings.json (idempotent, backed up + validated)
+function Add-HookEntry($j, [string]$Event, [string]$ScriptPath, [string]$Marker) {
+  # add a command hook for $Event -> $ScriptPath unless one already matches $Marker. Mutates $j. Returns added/present/skip.
+  if (-not (Test-Path $ScriptPath)) { return 'skip' }
+  if (-not $j.PSObject.Properties['hooks'] -or $null -eq $j.hooks) { $j | Add-Member hooks ([pscustomobject]@{}) -Force }
+  if (-not $j.hooks.PSObject.Properties[$Event] -or $null -eq $j.hooks.$Event) { $j.hooks | Add-Member $Event @() -Force }
+  foreach ($grp in @($j.hooks.$Event)) { foreach ($h in @($grp.hooks)) { if ("$($h.command)" -match $Marker) { return 'present' } } }
+  $cmd = "powershell -NoProfile -ExecutionPolicy Bypass -File `"$ScriptPath`""
+  $entry = [pscustomobject]@{ hooks = @([pscustomobject]@{ type = 'command'; command = $cmd; async = $true }) }
+  $j.hooks.$Event = @(@($j.hooks.$Event) + $entry)
+  return 'added'
+}
+
+function Install-Hooks {
+  # merge SessionStart (auto-start) + SessionEnd (shutdown) hooks into ~/.claude/settings.json;
+  # idempotent, backed up + validated (rolls back if the write isn't valid JSON).
   if (-not (Test-Path $AutoStart)) { Write-Host "! can't find fable-babysitter-autostart.ps1 next to this script"; return $false }
   $dir = Split-Path $SettingsPath
   if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
   $j = if (Test-Path $SettingsPath) {
     try { Get-Content $SettingsPath -Raw | ConvertFrom-Json } catch { Write-Host "! settings.json is not valid JSON - fix it first, not touching it"; return $false }
   } else { [pscustomobject]@{} }
-  if (-not $j.PSObject.Properties['hooks'] -or $null -eq $j.hooks) { $j | Add-Member hooks ([pscustomobject]@{}) -Force }
-  if (-not $j.hooks.PSObject.Properties['SessionStart'] -or $null -eq $j.hooks.SessionStart) { $j.hooks | Add-Member SessionStart @() -Force }
-  foreach ($grp in @($j.hooks.SessionStart)) { foreach ($h in @($grp.hooks)) { if ("$($h.command)" -match 'fable-babysitter-autostart') { Write-Host "= SessionStart hook already installed"; return $true } } }
-  $cmd = "powershell -NoProfile -ExecutionPolicy Bypass -File `"$AutoStart`""
-  $entry = [pscustomobject]@{ hooks = @([pscustomobject]@{ type = 'command'; command = $cmd; async = $true }) }
-  $j.hooks.SessionStart = @(@($j.hooks.SessionStart) + $entry)
+  $rs = Add-HookEntry $j 'SessionStart' $AutoStart 'fable-babysitter-autostart'
+  $re = Add-HookEntry $j 'SessionEnd'   $Shutdown  'fable-babysitter-shutdown'
+  if ($rs -ne 'added' -and $re -ne 'added') { Write-Host "= hooks already installed (SessionStart:$rs SessionEnd:$re)"; return $true }
   $bak = "${SettingsPath}.bak"
   if (Test-Path $SettingsPath) { Copy-Item $SettingsPath $bak -Force }
   ($j | ConvertTo-Json -Depth 100) | Set-Content -Path $SettingsPath -Encoding UTF8
   try { Get-Content $SettingsPath -Raw | ConvertFrom-Json | Out-Null }
   catch { if (Test-Path $bak) { Copy-Item $bak $SettingsPath -Force }; Write-Host "! write produced invalid JSON - restored backup, no change made"; return $false }
-  Write-Host "+ installed SessionStart hook in settings.json  (backup: settings.json.bak)"
+  Write-Host "+ hooks in settings.json  SessionStart:$rs  SessionEnd:$re  (backup: settings.json.bak)"
   return $true
 }
 
 if ($Install) {
   Write-Host "fable-babysitter - first-boot install"
-  if (Install-Hook) {
-    Write-Host "  a fable-babysitter now auto-starts with every Claude Code session."
+  if (Install-Hooks) {
+    Write-Host "  auto-starts with every Claude session; stops when the last one closes."
     Write-Host "  launching one now (minimized)..."
     try { Start-Process powershell -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $AutoStart) -WindowStyle Minimized } catch { Write-Host "  (couldn't launch now; it'll come up on your next Claude session)" }
   }

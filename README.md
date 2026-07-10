@@ -127,7 +127,10 @@ Run once with `-Install` and a babysitter will come up automatically with every 
 gsudo powershell -ExecutionPolicy Bypass -File .\fable-babysitter.ps1 -Install
 ```
 
-This merges a **SessionStart** hook into `~/.claude/settings.json` (idempotent, backs the file up first and rolls back if the write isn't valid JSON), pointing at `fable-babysitter-autostart.ps1` next to the script, then launches one now. Because a hook runs as a child of `claude.exe` it inherits that session's integrity — start the session elevated and the babysitter launches elevated too. A mutex guard means firing on every session start only ever runs one watcher.
+This merges two hooks into `~/.claude/settings.json` (idempotent, backs the file up first and rolls back if the write isn't valid JSON), then launches one now:
+
+- **SessionStart** → `fable-babysitter-autostart.ps1` — brings a babysitter up with each session. Because a hook runs as a child of `claude.exe` it inherits that session's integrity (start elevated → it launches elevated). A mutex guard means only one watcher ever runs.
+- **SessionEnd** → `fable-babysitter-shutdown.ps1` — stops the babysitter when the **last** Claude session closes, so it doesn't linger. (It fires on every session end but only acts when no other `claude.exe` remain.)
 
 <details><summary>Prefer to wire it by hand?</summary>
 
