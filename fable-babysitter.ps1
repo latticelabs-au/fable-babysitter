@@ -650,7 +650,7 @@ function Show-Dashboard {
   & $add "  recent:" 'DarkGray'
   foreach ($ln in $Recent) { & $add ("    $ln") 'Gray' }
   & $add "" 'Gray'
-  & $add "  Ctrl+C to quit" 'DarkGray'
+  & $add "  p = pause/resume    q = quit" 'DarkGray'
   try { [Console]::SetCursorPosition(0, 0) } catch {}
   for ($i = 0; $i -lt $lines.Count -and $i -lt $h - 1; $i++) {
     $t = [string]$lines[$i]; if ($t.Length -gt $w) { $t = $t.Substring(0, $w) } else { $t = $t.PadRight($w) }
@@ -679,14 +679,31 @@ if (-not $TUI) {
        $(if ($MaxSends -le 0) { "unlimited" } else { "$MaxSends" }), $RetrySec,
        $(if ($CompactAfter -gt 0) { "$CompactAfter -> $CompactCmd" } else { "off" }), [bool]$Diag, [bool]$DryRun)
   if ($ExcludePid.Count) { Log ("excluding pids: {0}" -f ($ExcludePid -join ', ')) }
+  Log "keys: p = pause/resume (keeps watching, stops sending) | q = quit"
   if (-not (Test-HookInstalled)) { Log "tip: run once with -Install to auto-start on every Claude session" }
 }
 if ($TUI) { try { [Console]::CursorVisible = $false; Clear-Host } catch {}; $recent = New-Object System.Collections.ArrayList }
+$paused = $false
 
 # base64 the args that may contain spaces — Start-Process -ArgumentList does NOT quote them
 $replyB64 = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($Reply))
 
 while ($true) {
+  # keyboard: p/space = pause/resume (keep watching + reporting, just stop sending), q = quit
+  try {
+    while ([Console]::KeyAvailable) {
+      $k = [Console]::ReadKey($true).Key
+      if ($k -eq 'P' -or $k -eq 'Spacebar') {
+        $paused = -not $paused
+        if (-not $TUI) { Log $(if ($paused) { "PAUSED - not sending (p to resume)" } else { "RESUMED" }) }
+      }
+      elseif ($k -eq 'Q') {
+        if ($TUI) { try { [Console]::CursorVisible = $true; Clear-Host } catch {} }
+        Log "quit"; exit 0
+      }
+    }
+  } catch {}   # no interactive console (redirected input) -> keys unavailable, keep running
+
   try { ($state | ConvertTo-Json -Depth 6 -Compress) | Set-Content -Path $inFile -Encoding UTF8 }
   catch { "{}" | Set-Content -Path $inFile -Encoding UTF8 }
   Remove-Item $outFile -ErrorAction SilentlyContinue
@@ -700,7 +717,7 @@ while ($true) {
   if ($TitleMatch)        { $a += @('-TitleMatchB64', [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($TitleMatch))) }
   if ($ExcludePid.Count)  { $a += @('-ExcludePidCsv', ($ExcludePid -join ',')) }
   if ($Diag)              { $a += '-Diag' }
-  if ($DryRun)            { $a += '-DryRun' }
+  if ($DryRun -or $paused) { $a += '-DryRun' }   # paused: still watch + report, just don't send
 
   try { Start-Process -FilePath $HostExe -ArgumentList $a -WindowStyle Hidden -Wait -ErrorAction Stop | Out-Null }
   catch { Log "scan worker failed to launch: $_" }
@@ -711,9 +728,10 @@ while ($true) {
       if ($TUI) {
         foreach ($ln in @($r.logs)) { if ($ln -and $ln -notmatch '^\s*\[') { [void]$recent.Add(("[{0}] {1}" -f (Get-Date -Format 'HH:mm:ss'), $ln.Trim())) } }
         while ($recent.Count -gt 12) { $recent.RemoveAt(0) }
-        $info = "{0} sessions | poll {1}s | maxsends:{2} | compact:{3} | {4}" -f `
+        $info = "{0} sessions | poll {1}s | maxsends:{2} | compact:{3} | {4}{5}" -f `
           @($r.status).Count, $IntervalSec, $(if ($MaxSends -le 0) { 'inf' } else { "$MaxSends" }),
-          $(if ($CompactAfter -gt 0) { "$CompactAfter" } else { 'off' }), (Get-Date -Format 'HH:mm:ss')
+          $(if ($CompactAfter -gt 0) { "$CompactAfter" } else { 'off' }), (Get-Date -Format 'HH:mm:ss'),
+          $(if ($paused) { '   *** PAUSED ***' } else { '' })
         Show-Dashboard -Status @($r.status) -Recent @($recent) -Info $info
       }
       else { foreach ($ln in @($r.logs)) { if ($ln) { Log $ln } } }

@@ -45,10 +45,19 @@ The fix is just to send `Continue Generating.` — but doing that by hand across
     [20:31:02] FLAG e2e-suite streak 30
     [20:31:00] COMPACT sent -> /compact
 
-  Ctrl+C to quit
+  p = pause/resume    q = quit
 ```
 
 `MAP` = whether the session was matched to its transcript (only needed for the scroll gate / usage-limit read; `-` tabs are still fully covered by the screen).
+
+### Keys
+
+Works in the dashboard or the plain log view:
+
+| Key | Action |
+|-----|--------|
+| `p` / `space` | **Pause / resume.** Paused it keeps watching and reporting state — it just stops sending. Handy when you want to drive a session by hand. |
+| `q` | Quit |
 
 ---
 
