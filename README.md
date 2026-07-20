@@ -1,5 +1,10 @@
 # fable-babysitter
 
+[![License: MIT](https://img.shields.io/badge/license-MIT-B8860B?style=flat-square&labelColor=0C1E3C)](LICENSE)
+![Platform](https://img.shields.io/badge/platform-Windows-1E3A5F?style=flat-square&labelColor=0C1E3C)
+![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-00B4D8?style=flat-square&labelColor=0C1E3C)
+![Made for Claude Code](https://img.shields.io/badge/made%20for-Claude%20Code-00B4D8?style=flat-square&labelColor=0C1E3C)
+
 Auto-dismiss **Fable 5 safeguard false-flags** in [Claude Code](https://claude.com/claude-code) so long, unattended runs don't stall — plus ride out account usage-limits and keep runaway context in check.
 
 When you run Claude Code on Fable, the model's safeguards periodically flag safe, normal content:
